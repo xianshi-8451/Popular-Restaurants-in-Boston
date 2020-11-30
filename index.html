@@ -1,0 +1,256 @@
+<html>
+
+<head>
+    <meta http-equiv="Content-Security-Policy" content="upgrade-insecure-requests">
+    <script src="https://d3js.org/topojson.v2.min.js"></script>
+    <script src="https://d3js.org/d3.v3.min.js"></script>
+    <script src="https://d3js.org/d3.v4.min.js"></script>
+    <script src="https://d3js.org/d3.v5.min.js"></script>
+    <script src="https://d3js.org/topojson.v2.min.js"></script>
+    <script src="https://unpkg.com/d3-sankey@0"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/5.7.0/d3.min.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css"
+        integrity="sha512-xodZBNTC5n17Xt2atTPuE1HxjVMSvLVW9ocqUKLsCC5CXdbqCmblAshOMAS6/keqq/sMZMZ19scR4PsZChSR7A=="
+        crossorigin="" />
+    <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"
+        integrity="sha512-XQoYMqMTK8LvdxXYG3nZ448hOEQiglfqkJs1NOQV44cWnUrBc8PkAOcXy20w0vlaXaVUearIOBhiXZ5V3ynxwA=="
+        crossorigin=""></script>
+    <style>
+        #mapid {
+            height: 700px;
+            width: 650px;
+            display: inline-block;
+        }
+        #restaurants {
+            height: 200px;
+            width: 40%;
+            overflow: hidden;
+            overflow-y: scroll;
+        }
+        .name {
+            font-family: Arial, Helvetica, sans-serif;
+            font-size: 25
+        }
+        #svgContainer {
+            position: relative;
+            width: 400px;
+            height: 700px;
+            overflow-y: scroll;
+            font-size: 22;
+            font-family: Arial, Helvetica, sans-serif;
+            display: inline-block;
+        }
+        .over { 
+            cursor: pointer; 
+        }
+    </style>
+</head>
+
+<body>
+    <h1>Top Restaurants in Boston</h1>
+    <div id="mapid"></div>
+    <div id="svgContainer">
+        <svg y="1000"; id="table_list" viewbox="0 0 600 20800"
+            style='stroke-width: 0px; background-color: rgb(161, 240, 237);'></svg>
+    </div>
+
+    <script>
+        const start_latitude = 42.361145;
+        const start_longitude = -71.057083;
+        const zoom_level = 11;
+        var mymap = L.map('mapid').setView([start_latitude, start_longitude], zoom_level);
+        L.tileLayer('https://api.mapbox.com/styles/v1/{id}/tiles/{z}/{x}/{y}?access_token=pk.eyJ1IjoibmF0YWx5MzIxIiwiYSI6ImNrZ3NpMmlyNDBweDAyeGs4d3dhMTEwOGoifQ.55MpjPZ8lnf0iyOA_mzo6g', {
+            attribution: 'Map data &copy; <a href="https://www.openstreetmap.org/">OpenStreetMap</a> contributors, <a href="https://creativecommons.org/licenses/by-sa/2.0/">CC-BY-SA</a>, Imagery © <a href="https://www.mapbox.com/">Mapbox</a>',
+            maxZoom: 18,
+            id: 'mapbox/streets-v11',
+            tileSize: 512,
+            zoomOffset: -1,
+            accessToken: 'your.mapbox.access.token'
+        }).addTo(mymap);
+        // source for wrap: https://stackoverflow.com/questions/14484787/wrap-text-in-javascript
+        const wrap_link = (s) => s.replace(/([^\n]{1,40})/g, '$1\n');
+        const wrap_address = (s, w) => s.replace(
+            new RegExp(`(?![^\\n]{1,${w}}$)([^\\n]{1,${w}})\\s`, 'g'), '$1\n'
+        );
+        const requestData = async function () {
+            const data = await d3.csv("./datasets/yelp_boston.csv", d3.autoType);
+            const table = d3.select("svg#table_list");
+            const table_h = table.attr("height");
+            const table_w = 600;
+            let list = [];
+            let name_to_lst_index = {}
+            data.forEach((d, i) => {
+                name_to_lst_index[d['name']] = i
+                var marker = L.marker([d.latitude, d.longitude]).addTo(mymap)
+                    // add here to show more in popup
+                    .bindPopup(d.name) // + '</br>' + "Rating : " + d.rating);
+                //console.log(d.name)
+                // console.log(d);
+                let isClicked = false
+                marker.on({
+                    mouseover: function () {
+                        if (!isClicked) {
+                            this.openPopup()
+                        }
+                    },
+                    mouseout: function () {
+                        if (!isClicked) {
+                            this.closePopup()
+                        }
+                    },
+                    click: function () {
+                        isClicked = true
+                        this.openPopup()
+                        show_restaurant(list[name_to_lst_index[this._popup._content]])
+                    }
+                })
+                mymap.on({
+                    click: function () {
+                        isClicked = false
+                    },
+                    popupclose: function () {
+                        isClicked = false
+                    }
+                });
+                const start_ind = d['location'].indexOf('display_address') + 19;
+                const end_ind = d['location'].indexOf('geo_accuracy') - 4;
+                const address = d['location'].substring(start_ind, end_ind).replace(/['"]+/g, '')
+                let categories = JSON.parse(d['categories']);
+                let categories_clean = ''
+                categories.forEach((elt, i) => {
+                    categories_clean = categories_clean + ", " + elt[0]
+                })
+                list.push({
+                    name: d['name'],
+                    id: i,
+                    web: d['url'],
+                    loc: address,
+                    com: d['snippet_text'],
+                    rating: d['rating'],
+                    rev_cnt: d['review_count'],
+                    categories: categories_clean.substring(2)
+                });
+            });
+            console.log(list);
+            function PopulateList(arr, ul) {
+                ul.selectAll("li")
+                    .data(arr)
+                    .join("li")
+                    .text(d => d['name'])
+                    .attr("id", d => d["id"])
+                    .on('click', d => show_restaurant(d))
+                return ul;
+            }
+            show_list();
+            // let ul = d3.select("div#restaurants").append("ul");
+            // PopulateList(list, ul);
+            function show_list() {
+                table.selectAll("*").remove();
+                list.forEach((elt, i) => {
+                    table.append("rect")
+                        .attr("x", 0)
+                        .attr("y", i * 100)
+                        .attr("width", table_w)
+                        .attr("height", 100)
+                        .attr("fill", "none")
+                        .attr("stroke", "black")
+                        .attr("stroke-width", 2);
+                    table.append("text")
+                        .attr("x", 300)
+                        .attr("y", i * 100 + 30)
+                        .text(elt['name'])
+                        .style("text-anchor", "middle")
+                        .attr("class", "name over")
+                        .on('click', () => {
+                            show_restaurant(elt)
+                        })
+                });
+            }
+            function show_restaurant(d) {
+                const info_offset = 50;
+                const side_margin = 40;
+                const t_b_margin = 40;
+                const line_offset = 15;
+                table.selectAll("*").remove();
+                table.append("svg:image")
+                    .attr('x', 25)
+                    .attr('y', 25)
+                    .attr("xlink:href", "images/back.png")
+                    .on("click", () => {
+                        show_list();
+                    })
+                    .attr("class", "over");
+                table.append("text")
+                    .attr("x", table_w / 2)
+                    .attr("y", 50)
+                    .text(d['name'])
+                    .style("text-anchor", "middle")
+                    .attr("class", "name");
+                table.append("text")
+                    .attr("x", table_w / 2)
+                    .attr("y", 50 + 20)
+                    .text('★ ' + d['rating'] + ' (' + d['rev_cnt'] + ')')
+                    .style("text-anchor", "middle");
+                table.append("svg:image")
+                    .attr('x', side_margin)
+                    .attr('y', info_offset + t_b_margin)
+                    .attr("xlink:href", "images/web.png");
+                b = wrap_link(d['web']).split("\n")
+                b.forEach((elt, i) => {
+                    table.append("text")
+                        .attr("x", side_margin + info_offset + 12)
+                        .attr("y", info_offset + t_b_margin + 25 + 1.5*i * line_offset)
+                        .text(elt);
+                });
+                table.append("svg:image")
+                    .attr('x', side_margin + 11)
+                    .attr('y', 2 * info_offset + t_b_margin)
+                    .attr("xlink:href", "images/marker.png");
+                j = wrap_address(d['loc'], 40).split("\n")
+                j.forEach((elt, i) => {
+                    table.append("text")
+                        .attr("x", side_margin + 50 + 12)
+                        .attr("y", 2 * info_offset + t_b_margin + 25 + 1.5*i * line_offset)
+                        .text(elt);
+                })
+                table.append("svg:image")
+                    .attr('x', side_margin - 11)
+                    .attr('y', 3 * info_offset + t_b_margin)
+                    .attr("xlink:href", "images/plate.png");
+                let cat = wrap_address(d['categories'], 40).split("\n")
+                cat.forEach((elt, i) => {
+                    table.append("text")
+                        .attr("x", side_margin + 50 + 12)
+                        .attr("y", 3 * info_offset + t_b_margin + 30 + 1.5*i * line_offset)
+                        .text(elt);
+                })
+                let review = wrap_address('"' + d['com'] + '"', 40).split("\n")
+                review.forEach((elt, i) => {
+                    table.append("text")
+                        .attr("x", table_w / 2)
+                        .attr("y", 4 * info_offset + 6 * line_offset + 1.5*i * line_offset)
+                        .text(elt)
+                        .style("text-anchor", "middle");
+                });
+                // table.append("text")
+                //     .attr("x", table_w / 2)
+                //     .attr("y", 4 * info_offset + (11 + review.length) * line_offset)
+                //     .text("Other Places to Consider")
+                //     .style("text-anchor", "middle")
+                //     .attr("class", "name");
+                // let similar_restaurants = ['Restaurant 1', 'Restaurant 2', 'Restaurant 3']
+                // similar_restaurants.forEach((elt, i) => {
+                //     table.append("text")
+                //         .attr("x", table_w / 2)
+                //         .attr("y", 4 * info_offset + (13 + review.length) * line_offset + 1.5*i * line_offset)
+                //         .text(elt)
+                //         .style("text-anchor", "middle")
+                //         .attr("class", "over");
+                // })
+            }
+        }
+        requestData();
+    </script>
+</body>
+
+</html>
